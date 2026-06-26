@@ -7,7 +7,7 @@ import Students from './pages/Students';
 import Analytics from './pages/Analytics';
 import QRScanner from './pages/QRScanner';
 import Notifications from './pages/Notifications';
-import { clearToken, getToken } from './api';
+import { clearToken } from './api';
 
 type Role = 'admin' | 'principal' | 'scanner';
 type Page = 'dashboard' | 'students' | 'analytics' | 'scanner' | 'notifications';
@@ -89,7 +89,7 @@ export default function App() {
           {visibleNav.map(item => (
             <a
               key={item.page}
-              href="#"
+              href="#!"
               className={page === item.page ? 'active' : ''}
               onClick={e => { e.preventDefault(); setPage(item.page); }}
             >
