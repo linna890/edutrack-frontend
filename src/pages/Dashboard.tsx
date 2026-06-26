@@ -134,7 +134,7 @@ export default function Dashboard() {
           <Doughnut data={doughnutData} options={{
             responsive: true, cutout: '72%',
             plugins: {
-              legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, font: { family: 'Nunito', weight: '700' } } }
+              legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, font: { family: 'Nunito', weight: 700 } } }
             }
           }} />
         </div>
