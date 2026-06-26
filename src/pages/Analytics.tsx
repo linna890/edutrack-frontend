@@ -115,7 +115,7 @@ export default function Analytics() {
               {classes.length > 0 ? (
                 <Bar data={classChartData} options={{
                   responsive: true,
-                  plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: '700' } } } },
+                  plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: 700 } } } },
                   scales: {
                     y: { min: 60, max: 100, ticks: { callback: (v: number | string) => v + '%' }, grid: { color: '#E2EFF9' } },
                     x: { grid: { display: false } }
@@ -160,7 +160,7 @@ export default function Analytics() {
             {trend.length > 0 ? (
               <Line data={trendChartData} options={{
                 responsive: true,
-                plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: '700' } } } },
+                plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: 700 } } } },
                 scales: {
                   y: { min: 60, max: 100, ticks: { callback: (v: number | string) => v + '%' }, grid: { color: '#E2EFF9' } },
                   x: { grid: { display: false }, ticks: { font: { size: 10 } } }
