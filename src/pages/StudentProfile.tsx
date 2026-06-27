@@ -726,7 +726,7 @@ export default function StudentProfile() {
                       <Doughnut data={donutData} options={{
                         cutout: '72%', responsive: true,
                         plugins: {
-                          legend: { position: 'bottom', labels: { font: { family: 'Nunito', weight: '700' }, padding: 16 } },
+                          legend: { position: 'bottom', labels: { font: { family: 'Nunito', weight: 700 }, padding: 16 } },
                           tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${ctx.raw} days` } },
                         },
                       }} />
@@ -801,10 +801,10 @@ export default function StudentProfile() {
                   {dowData && (
                     <Bar data={dowData} options={{
                       responsive: true,
-                      plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: '700' } } } },
+                      plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: 700 } } } },
                       scales: {
                         y: { grid: { color: '#f1f5f9' }, ticks: { font: { family: 'Nunito' } } },
-                        x: { grid: { display: false }, ticks: { font: { family: 'Nunito', weight: '700' } } },
+                        x: { grid: { display: false }, ticks: { font: { family: 'Nunito', weight: 700 } } },
                       },
                     }} />
                   )}
@@ -845,10 +845,10 @@ export default function StudentProfile() {
                   <Bar data={monthlyData} options={{
                     responsive: true,
                     plugins: {
-                      legend: { position: 'top', labels: { font: { family: 'Nunito', weight: '700' } } },
+                      legend: { position: 'top', labels: { font: { family: 'Nunito', weight: 700 } } },
                     },
                     scales: {
-                      x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Nunito', weight: '700' } } },
+                      x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Nunito', weight: 700 } } },
                       y: { stacked: true, grid: { color: '#f1f5f9' }, ticks: { font: { family: 'Nunito' } } },
                     },
                   }} />
