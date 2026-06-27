@@ -1,23 +1,121 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { apiGetToday, apiGetSummary, AttendanceRecord, SummaryData } from '../api';
 
-const NOTIFS = [
-  { icon: '🔴', type: 'coral', title: 'Absence Alert Sent', body: 'Dinusha Mendis (8A) was marked absent. Parent notified via email at 8:15 AM.', time: '8:15 AM · Today', unread: true },
-  { icon: '⏰', type: 'yellow', title: 'Lateness Alert', body: 'Ruwan Jayantha (11C) arrived 14 minutes late. Parent notified.', time: '8:14 AM · Today', unread: true },
-  { icon: '✅', type: 'mint', title: 'Daily Summary Sent', body: 'Morning attendance summary delivered to all 1,248 parents via Brevo SMTP.', time: '8:00 AM · Today', unread: true },
-  { icon: '📊', type: 'sky', title: 'Weekly Report Generated', body: 'Attendance report for Week 24 is ready. Overall rate: 92.4%.', time: 'Yesterday · 4:30 PM', unread: false },
-  { icon: '⚠️', type: 'coral', title: 'High-Risk Alert', body: 'Dinusha Mendis has fallen below 60% attendance threshold. Principal notified.', time: 'Yesterday · 9:00 AM', unread: false },
-  { icon: '🎉', type: 'mint', title: 'Perfect Attendance', body: 'Class 11A achieved 100% attendance for 5 consecutive days! Certificate issued.', time: '2 days ago', unread: false },
-  { icon: '🔔', type: 'sky', title: 'System Update', body: 'QR scanner firmware updated. Scan speed improved by 30%.', time: '3 days ago', unread: false },
-];
+interface Notif {
+  icon: string;
+  type: 'coral' | 'yellow' | 'mint' | 'sky';
+  title: string;
+  body: string;
+  time: string;
+  unread: boolean;
+  category: 'alert' | 'report' | 'system';
+}
+
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday =
+    d.getDate() === now.getDate() &&
+    d.getMonth() === now.getMonth() &&
+    d.getFullYear() === now.getFullYear();
+  return isToday
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' · Today'
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+      ' · ' +
+      d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function buildNotifs(records: AttendanceRecord[], summary: SummaryData | null): Notif[] {
+  const notifs: Notif[] = [];
+
+  // One notif per absent/late student scanned today
+  for (const r of records) {
+    const name = `${r.student.fullName} (${r.student.grade})`;
+    if (r.status === 'ABSENT') {
+      notifs.push({
+        icon: '🔴',
+        type: 'coral',
+        title: 'Absence Alert',
+        body: `${name} was marked absent. Parent notification sent.`,
+        time: fmtTime(r.attendanceDate + 'T00:00:00'),
+        unread: true,
+        category: 'alert',
+      });
+    } else if (r.status === 'LATE' && r.arrivalTime) {
+      const mins = Math.round(
+        (new Date(r.arrivalTime).getTime() - new Date(r.attendanceDate + 'T08:00:00').getTime()) /
+          60000
+      );
+      notifs.push({
+        icon: '⏰',
+        type: 'yellow',
+        title: 'Lateness Alert',
+        body: `${name} arrived ${mins > 0 ? mins + ' minutes late' : 'late'}. Parent notified.`,
+        time: fmtTime(r.arrivalTime),
+        unread: true,
+        category: 'alert',
+      });
+    }
+  }
+
+  // Summary notif if we have data
+  if (summary && summary.totalStudents > 0) {
+    notifs.push({
+      icon: '📊',
+      type: 'sky',
+      title: 'Today\'s Summary',
+      body: `Present: ${summary.presentToday} · Late: ${summary.lateToday} · Absent: ${summary.absentToday} · Attendance rate: ${summary.attendancePct}%`,
+      time: 'Today',
+      unread: false,
+      category: 'report',
+    });
+  }
+
+  return notifs;
+}
 
 export default function Notifications() {
   const [filter, setFilter] = useState('All');
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [readSet, setReadSet] = useState<Set<number>>(new Set());
 
-  const filtered = NOTIFS.filter(n => filter === 'All' || (filter === 'Unread' && n.unread));
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [records, summary] = await Promise.all([
+        apiGetToday().catch(() => [] as AttendanceRecord[]),
+        apiGetSummary().catch(() => null),
+      ]);
+      setNotifs(buildNotifs(records, summary));
+    } catch {
+      setError('Failed to load notifications');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const unreadCount = notifs.filter((n, i) => n.unread && !readSet.has(i)).length;
+
+  const markAllRead = () => {
+    setReadSet(new Set(notifs.map((_, i) => i)));
+  };
+
+  const filtered = notifs.filter((n, i) => {
+    const isUnread = n.unread && !readSet.has(i);
+    if (filter === 'Unread') return isUnread;
+    if (filter === 'Alerts') return n.category === 'alert';
+    if (filter === 'Reports') return n.category === 'report';
+    return true;
+  });
 
   return (
     <div className="page-inner">
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 24, alignItems: 'center', flexWrap: 'wrap' }}>
         {['All', 'Unread', 'Alerts', 'Reports'].map(f => (
           <button
             key={f}
@@ -30,39 +128,68 @@ export default function Notifications() {
               padding: '8px 18px',
             }}
           >
-            {f} {f === 'Unread' ? `(${NOTIFS.filter(n => n.unread).length})` : ''}
+            {f} {f === 'Unread' && unreadCount > 0 ? `(${unreadCount})` : ''}
           </button>
         ))}
-        <button className="btn-sm sky" style={{ marginLeft: 'auto', background: 'white', color: 'var(--text-muted)', border: '2px solid var(--border)' }}>
-          ✓ Mark all read
-        </button>
+        {unreadCount > 0 && (
+          <button
+            onClick={markAllRead}
+            className="btn-sm"
+            style={{ marginLeft: 'auto', background: 'white', color: 'var(--text-muted)', border: '2px solid var(--border)' }}
+          >
+            ✓ Mark all read
+          </button>
+        )}
       </div>
 
-      {/* Email status card */}
-      <div style={{ background: 'linear-gradient(135deg, #1E3A5F, #0F2240)', borderRadius: 20, padding: '20px 24px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 20, boxShadow: '0 8px 32px rgba(15,34,64,0.3)' }}>
-        <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg,#4FC3F7,#A8EDCB)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0, boxShadow: '0 4px 16px rgba(79,195,247,0.4)' }}>📧</div>
-        <div style={{ flex: 1 }}>
-          <h3 style={{ color: 'white', fontSize: 15, marginBottom: 4 }}>Brevo SMTP Connected</h3>
-          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>847 emails sent today · 0 failures · Avg delivery: 1.2s</p>
+      {error && (
+        <div style={{ background: '#FFEBEE', border: '1.5px solid #FF8A80', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#C62828', fontWeight: 600, fontFamily: 'Nunito', marginBottom: 20 }}>
+          ⚠️ {error}
         </div>
-        <span style={{ background: '#A8EDCB', color: '#1B5E20', fontSize: 12, fontWeight: 700, padding: '5px 14px', borderRadius: 20, fontFamily: 'Nunito' }}>● ACTIVE</span>
-      </div>
+      )}
 
-      <div className="notif-list">
-        {filtered.map((n, i) => (
-          <div key={i} className={`notif-item ${n.unread ? 'unread' : ''}`}>
-            <div className={`notif-icon ${n.type}`}>{n.icon}</div>
-            <div className="notif-content" style={{ flex: 1 }}>
-              <h4>{n.title}</h4>
-              <p>{n.body}</p>
-              <p className="notif-time">🕐 {n.time}</p>
-            </div>
-            {n.unread && (
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#4FC3F7', flexShrink: 0, marginTop: 4 }} />
-            )}
-          </div>
-        ))}
-      </div>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '64px 0' }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>⏳</div>
+          <p style={{ color: 'var(--text-muted)', fontFamily: 'Nunito' }}>Loading notifications…</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '80px 0' }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>🔔</div>
+          <h3 style={{ fontFamily: 'Nunito', fontWeight: 900, color: 'var(--text-primary)', marginBottom: 8 }}>
+            {filter === 'Unread' ? 'All caught up!' : 'No notifications yet'}
+          </h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: 14, fontFamily: 'Nunito' }}>
+            {filter === 'Unread'
+              ? 'No unread notifications.'
+              : 'Notifications will appear here when students are scanned or alerts are triggered.'}
+          </p>
+        </div>
+      ) : (
+        <div className="notif-list">
+          {filtered.map((n, i) => {
+            const isUnread = n.unread && !readSet.has(i);
+            return (
+              <div
+                key={i}
+                className={`notif-item ${isUnread ? 'unread' : ''}`}
+                onClick={() => setReadSet(s => new Set([...s, i]))}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className={`notif-icon ${n.type}`}>{n.icon}</div>
+                <div className="notif-content" style={{ flex: 1 }}>
+                  <h4>{n.title}</h4>
+                  <p>{n.body}</p>
+                  <p className="notif-time">🕐 {n.time}</p>
+                </div>
+                {isUnread && (
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#4FC3F7', flexShrink: 0, marginTop: 4 }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
