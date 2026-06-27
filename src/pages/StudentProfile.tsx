@@ -12,7 +12,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, ArcElemen
 interface DowEntry { day: string; absent: number; total: number; absentPct: number; }
 interface MonthEntry { PRESENT: number; LATE: number; ABSENT: number; }
 
-interface StudentProfile {
+interface StudentProfileData {
   student: { id: number; studentId: string; name: string; grade: string; parentEmail: string; };
   stats: {
     totalRecords: number; present: number; late: number; absent: number;
@@ -407,7 +407,7 @@ export default function StudentProfile() {
   const [students, setStudents]       = useState<StudentRecord[]>([]);
   const [search, setSearch]           = useState('');
   const [selectedId, setSelectedId]   = useState<number | null>(null);
-  const [profile, setProfile]         = useState<StudentProfile | null>(null);
+  const [profile, setProfile]         = useState<StudentProfileData | null>(null);
   const [loading, setLoading]         = useState(false);
   const [studentsLoading, setStudentsLoading] = useState(true);
   const [error, setError]             = useState('');
@@ -430,7 +430,7 @@ export default function StudentProfile() {
     setError('');
     const from = daysAgo(rangeDays - 1);
     const to   = today();
-    request<StudentProfile>(`/analytics/student/${selectedId}?fromDate=${from}&toDate=${to}`)
+    request<StudentProfileData>(`/analytics/student/${selectedId}?fromDate=${from}&toDate=${to}`)
       .then(setProfile)
       .catch(e => setError(e.message || 'Failed to load profile'))
       .finally(() => setLoading(false));
