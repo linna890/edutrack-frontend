@@ -91,7 +91,7 @@ export default function QRScanner() {
 
   return (
     <div className="page-inner">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24, alignItems: 'start' }}>
         {/* Left: Scanner */}
         <div>
           {/* Mode toggle */}
@@ -101,7 +101,8 @@ export default function QRScanner() {
                 key={m}
                 onClick={() => setMode(m)}
                 style={{
-                  padding: '10px 24px', fontSize: 14,
+                  flex: 1,
+                  padding: '14px 24px', fontSize: 15,
                   background: mode === m ? 'linear-gradient(135deg, #4FC3F7, #0288D1)' : 'white',
                   color: mode === m ? 'white' : 'var(--text-muted)',
                   border: '2px solid', borderColor: mode === m ? '#4FC3F7' : 'var(--border)',
@@ -146,32 +147,90 @@ export default function QRScanner() {
 
         {/* Right: Manual entry */}
         <div>
-          <div className="chart-card">
-            <h3 style={{ marginBottom: 6, fontSize: 16 }}>🖊️ Manual Entry</h3>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Type or paste a student QR token</p>
-            <div style={{ display: 'flex', gap: 10 }}>
+          <div className="chart-card" style={{ padding: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <span style={{ fontSize: 24 }}>⌨️</span>
+              <h3 style={{ margin: 0, fontSize: 17, fontFamily: 'Nunito', fontWeight: 900, color: 'var(--text-primary)' }}>Manual Entry</h3>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, marginTop: 4 }}>
+              Type or paste the student's QR token below, then press <strong>Record</strong> or hit <kbd style={{ background: 'var(--border)', borderRadius: 4, padding: '1px 6px', fontSize: 11 }}>Enter</kbd>
+            </p>
+            <div style={{ position: 'relative', marginBottom: 14 }}>
               <input
-                className="form-input"
-                placeholder="QR token (e.g. A3F91C7B…)"
+                placeholder="e.g. A3F91C7B..."
                 value={manualInput}
                 onChange={e => setManualInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleManualSubmit()}
-                style={{ flex: 1 }}
-              />
-              <button
-                onClick={handleManualSubmit}
-                disabled={scanning || !manualInput.trim()}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 style={{
-                  padding: '10px 18px', borderRadius: 12, fontWeight: 700,
-                  fontFamily: 'Nunito', fontSize: 13, cursor: 'pointer',
-                  background: 'linear-gradient(135deg, #4FC3F7, #0288D1)', color: 'white',
-                  border: 'none', whiteSpace: 'nowrap',
-                  opacity: scanning || !manualInput.trim() ? 0.6 : 1,
+                  width: '100%',
+                  padding: '22px 56px 22px 20px',
+                  fontSize: 18,
+                  fontFamily: 'Nunito, sans-serif',
+                  fontWeight: 700,
+                  color: '#1E3A5F',
+                  background: '#F0F9FF',
+                  border: '2.5px solid',
+                  borderColor: manualInput ? '#4FC3F7' : '#CBD5E1',
+                  borderRadius: 16,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  letterSpacing: 1.5,
+                  transition: 'border-color 0.2s, box-shadow 0.2s',
+                  minHeight: 64,
+                  WebkitAppearance: 'none',
+                  touchAction: 'manipulation',
                 }}
-              >
-                Record
-              </button>
+                onFocus={e => {
+                  e.currentTarget.style.borderColor = '#0288D1';
+                  e.currentTarget.style.boxShadow = '0 0 0 4px rgba(79,195,247,0.15)';
+                }}
+                onBlur={e => {
+                  e.currentTarget.style.borderColor = manualInput ? '#4FC3F7' : '#CBD5E1';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              />
+              {manualInput && (
+                <button
+                  onClick={() => setManualInput('')}
+                  style={{
+                    position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)',
+                    background: '#E2E8F0', border: 'none', cursor: 'pointer',
+                    fontSize: 14, color: '#64748B', lineHeight: 1,
+                    width: 32, height: 32, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >✕</button>
+              )}
             </div>
+            <button
+              onClick={handleManualSubmit}
+              disabled={scanning || !manualInput.trim()}
+              style={{
+                width: '100%',
+                padding: '20px',
+                borderRadius: 16,
+                fontWeight: 900,
+                fontFamily: 'Nunito',
+                fontSize: 18,
+                minHeight: 64,
+                cursor: scanning || !manualInput.trim() ? 'not-allowed' : 'pointer',
+                background: scanning || !manualInput.trim()
+                  ? '#E2E8F0'
+                  : 'linear-gradient(135deg, #4FC3F7, #0288D1)',
+                color: scanning || !manualInput.trim() ? '#94A3B8' : 'white',
+                border: 'none',
+                boxShadow: scanning || !manualInput.trim() ? 'none' : '0 4px 20px rgba(79,195,247,0.4)',
+                transition: 'all 0.2s',
+                touchAction: 'manipulation',
+                letterSpacing: 0.5,
+              }}
+            >
+              {scanning ? '⏳ Recording...' : '✅ Record Attendance'}
+            </button>
           </div>
 
           {/* Instructions */}
