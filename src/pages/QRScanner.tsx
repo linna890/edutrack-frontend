@@ -19,7 +19,8 @@ interface ScanFeedback {
   studentId?: string;
   grade?: string;
   registrationNumber?: string;
-  photoBase64?: string;
+  photoUrl?: string;       // Cloudinary CDN URL (new students)
+  photoBase64?: string;    // legacy fallback (old students)
   status: string;
   time: string;
   success: boolean;
@@ -79,7 +80,8 @@ export default function QRScanner() {
         studentId:          result.studentId,
         grade:              result.grade,
         registrationNumber: result.registrationNumber,
-        photoBase64:        result.photoBase64,
+        photoUrl:           result.photoUrl,
+        photoBase64:        result.photoBase64,   // legacy fallback
         status:             result.status,
         // FIX: LocalDateTime from Spring arrives as "2025-01-15T08:12:00" (no Z).
         // Appending nothing is fine for toLocaleTimeString on most browsers,
@@ -320,12 +322,14 @@ export default function QRScanner() {
               {scanPopup.status === 'PRESENT' ? '✅ PRESENT' : scanPopup.status === 'LATE' ? '⏰ LATE' : '❌ ABSENT'} · {scanPopup.time}
             </div>
 
-            {/* Photo */}
-            <div style={{ width: 100, height: 100, borderRadius: '50%', margin: '0 auto 16px', border: '3px solid #E2E8F0', overflow: 'hidden', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {scanPopup.photoBase64 ? (
+            {/* Photo — Cloudinary URL preferred, legacy base64 as fallback */}
+            <div style={{ width: 110, height: 110, borderRadius: '50%', margin: '0 auto 16px', border: '4px solid', borderColor: scanPopup.status === 'PRESENT' ? '#86EFAC' : scanPopup.status === 'LATE' ? '#FDE047' : '#FCA5A5', overflow: 'hidden', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}>
+              {scanPopup.photoUrl ? (
+                <img src={scanPopup.photoUrl} alt={scanPopup.studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : scanPopup.photoBase64 ? (
                 <img src={`data:image/jpeg;base64,${scanPopup.photoBase64}`} alt={scanPopup.studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
-                <span style={{ fontSize: 40 }}>🎒</span>
+                <span style={{ fontSize: 44 }}>🎒</span>
               )}
             </div>
 
