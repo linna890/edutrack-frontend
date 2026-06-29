@@ -14,21 +14,20 @@ export default function Analytics() {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
+    // FIX: Promise.allSettled so a single failing endpoint doesn't wipe all charts
+    Promise.allSettled([
       apiGetSummary(),
       apiGetTrend(days),
       apiGetClassComparison(),
-    ]).then(([s, t, c]) => {
-      setSummary(s);
-      setTrend(t);
-      setClasses(c);
-    }).catch(() => {
-      // Degrade gracefully
+    ]).then(([sRes, tRes, cRes]) => {
+      if (sRes.status === 'fulfilled') setSummary(sRes.value);
+      if (tRes.status === 'fulfilled') setTrend(tRes.value);
+      if (cRes.status === 'fulfilled') setClasses(cRes.value);
     }).finally(() => setLoading(false));
   }, [days]);
 
   const trendChartData = {
-    labels: trend.map(d => new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+    labels: trend.map(d => new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
     datasets: [{
       label: 'Attendance %',
       data: trend.map(d => d.pct),
