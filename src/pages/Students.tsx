@@ -3,8 +3,46 @@ import { apiGetStudents, apiCreateStudent, apiDeleteStudent, apiRegenerateQr, St
 
 const COLORS = ['sky', 'mint', 'yellow', 'coral', 'purple'];
 
+// ─── Cloudinary config ────────────────────────────────────────────────────────
+// Set these two values to match your Cloudinary account.
+// CLOUD_NAME  → Dashboard → Cloud Name (e.g. "dxyz123abc")
+// UPLOAD_PRESET → Settings → Upload → Unsigned upload preset name (e.g. "edutrack_students")
+const CLOUDINARY_CLOUD_NAME  = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME  || '';
+const CLOUDINARY_UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET || '';
+
+async function uploadToCloudinary(file: File): Promise<string> {
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_UPLOAD_PRESET) {
+    throw new Error('Cloudinary is not configured. Add REACT_APP_CLOUDINARY_CLOUD_NAME and REACT_APP_CLOUDINARY_UPLOAD_PRESET to your Vercel env vars.');
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  fd.append('folder', 'edutrack/students');
+  // Resize & crop to 300×300 on Cloudinary side — keeps file small
+  fd.append('transformation', 'c_fill,w_300,h_300,q_auto,f_auto');
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+    { method: 'POST', body: fd }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'Cloudinary upload failed');
+  }
+  const data = await res.json();
+  // Return the secure_url — this is what gets stored in the DB
+  return data.secure_url as string;
+}
+
 function initials(name: string) {
   return name.split(' ').map(n => n[0]).join('').substring(0, 2);
+}
+
+function studentPhoto(s: StudentRecord) {
+  // Prefer Cloudinary URL; fall back to legacy base64 for old students
+  if (s.photoUrl) return s.photoUrl;
+  if (s.photoBase64) return `data:image/jpeg;base64,${s.photoBase64}`;
+  return null;
 }
 
 export default function Students() {
@@ -16,11 +54,15 @@ export default function Students() {
   const [qrModal, setQrModal]     = useState<StudentRecord | null>(null);
   const [error, setError]         = useState('');
 
-  // New student form state
-  const [form, setForm] = useState({ studentId: '', fullName: '', grade: '', parentEmail: '', parentPhone: '', registrationNumber: '' });
+  // New student form
+  const [form, setForm] = useState({
+    studentId: '', fullName: '', grade: '',
+    parentEmail: '', parentPhone: '', registrationNumber: ''
+  });
+  const [photoFile, setPhotoFile]       = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string>('');
-  const [photoBase64, setPhotoBase64] = useState<string>('');
-  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading]       = useState(false);
+  const [saving, setSaving]             = useState(false);
 
   const loadStudents = () => {
     setLoading(true);
@@ -35,41 +77,43 @@ export default function Students() {
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPhotoFile(file);
+    // Show preview immediately from local file
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setPhotoPreview(dataUrl);
-      // FIX: Compress & resize the photo before storing it as base64.
-      // Without this, a phone camera photo (~3MB) becomes a ~4MB base64 string.
-      // That string is stored in the DB and returned in EVERY scan response,
-      // causing the QR scanner popup to timeout and fail ("can't fetch").
-      // We resize to max 200×200px and compress to JPEG quality 0.7 (~10-30KB).
-      const img = new Image();
-      img.onload = () => {
-        const MAX = 200;
-        const scale = Math.min(MAX / img.width, MAX / img.height, 1);
-        const canvas = document.createElement('canvas');
-        canvas.width  = Math.round(img.width  * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const compressed = canvas.toDataURL('image/jpeg', 0.7);
-        setPhotoPreview(compressed);
-        setPhotoBase64(compressed.split(',')[1] || '');
-      };
-      img.src = dataUrl;
-    };
+    reader.onload = ev => setPhotoPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setError('');
     try {
-      await apiCreateStudent({ ...form, photoBase64: photoBase64 || undefined });
+      let photoUrl: string | undefined;
+
+      // Upload photo to Cloudinary first (if one was selected)
+      if (photoFile) {
+        setUploading(true);
+        try {
+          photoUrl = await uploadToCloudinary(photoFile);
+        } catch (uploadErr: any) {
+          // Non-fatal — student is registered without a photo
+          setError(`Photo upload failed: ${uploadErr.message}. Student will be saved without a photo.`);
+        } finally {
+          setUploading(false);
+        }
+      }
+
+      // Register student — send photoUrl (CDN URL), NOT base64
+      await apiCreateStudent({
+        ...form,
+        photoUrl,
+        // Do not send photoBase64 — Cloudinary URL is the new standard
+      });
+
       setForm({ studentId: '', fullName: '', grade: '', parentEmail: '', parentPhone: '', registrationNumber: '' });
+      setPhotoFile(null);
       setPhotoPreview('');
-      setPhotoBase64('');
       setShowAdd(false);
       loadStudents();
     } catch (err: any) {
@@ -100,22 +144,23 @@ export default function Students() {
     }
   };
 
-  const filtered = students.filter(s => {
-    const matchSearch = s.fullName.toLowerCase().includes(search.toLowerCase()) ||
-                        s.studentId.toLowerCase().includes(search.toLowerCase());
-    if (filter === 'At Risk') return matchSearch; // we don't have pct on list endpoint — show all
-    return matchSearch;
-  });
+  const filtered = students.filter(s =>
+    s.fullName.toLowerCase().includes(search.toLowerCase()) ||
+    s.studentId.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const isCloudinaryConfigured = !!CLOUDINARY_CLOUD_NAME && !!CLOUDINARY_UPLOAD_PRESET;
 
   return (
     <div className="page-inner">
       {error && (
         <div style={{ background: '#FFEBEE', border: '1.5px solid #FF8A80', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#C62828', fontWeight: 600, fontFamily: 'Nunito', marginBottom: 20 }}>
-          ⚠️ {error} <button onClick={() => setError('')} style={{ marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#C62828', fontWeight: 800 }}>✕</button>
+          ⚠️ {error}
+          <button onClick={() => setError('')} style={{ marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#C62828', fontWeight: 800 }}>✕</button>
         </div>
       )}
 
-      {/* Filters + Add button */}
+      {/* Toolbar */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           className="form-input"
@@ -125,17 +170,13 @@ export default function Students() {
           style={{ maxWidth: 280 }}
         />
         {['All', 'Good Standing', 'At Risk'].map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            style={{
-              padding: '8px 18px', borderRadius: 10, cursor: 'pointer', fontWeight: 700,
-              fontFamily: 'Nunito', fontSize: 12, border: '2px solid',
-              background: filter === f ? 'linear-gradient(135deg, #4FC3F7, #0288D1)' : 'white',
-              color: filter === f ? 'white' : 'var(--text-muted)',
-              borderColor: filter === f ? '#4FC3F7' : 'var(--border)',
-            }}
-          >
+          <button key={f} onClick={() => setFilter(f)} style={{
+            padding: '8px 18px', borderRadius: 10, cursor: 'pointer', fontWeight: 700,
+            fontFamily: 'Nunito', fontSize: 12, border: '2px solid',
+            background: filter === f ? 'linear-gradient(135deg, #4FC3F7, #0288D1)' : 'white',
+            color: filter === f ? 'white' : 'var(--text-muted)',
+            borderColor: filter === f ? '#4FC3F7' : 'var(--border)',
+          }}>
             {f === 'At Risk' ? '⚠️ ' : ''}{f}
           </button>
         ))}
@@ -144,18 +185,13 @@ export default function Students() {
         </span>
         <button
           onClick={() => setShowAdd(true)}
-          style={{
-            padding: '10px 20px', borderRadius: 12, border: 'none', cursor: 'pointer',
-            background: 'linear-gradient(135deg, #4FC3F7, #0288D1)', color: 'white',
-            fontWeight: 700, fontFamily: 'Nunito', fontSize: 13,
-            boxShadow: '0 4px 16px rgba(79,195,247,0.35)',
-          }}
+          style={{ padding: '10px 20px', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #4FC3F7, #0288D1)', color: 'white', fontWeight: 700, fontFamily: 'Nunito', fontSize: 13, boxShadow: '0 4px 16px rgba(79,195,247,0.35)' }}
         >
           + Add Student
         </button>
       </div>
 
-      {/* Loading */}
+      {/* Student Grid */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
@@ -170,48 +206,53 @@ export default function Students() {
         </div>
       ) : (
         <div className="students-grid">
-          {filtered.map((s, i) => (
-            <div key={s.id} className="student-card">
-              <div className={`student-card-avatar ${COLORS[i % COLORS.length]}`} style={{ overflow: 'hidden' }}>
-                {s.photoBase64 ? (
-                  <img src={`data:image/jpeg;base64,${s.photoBase64}`} alt={s.fullName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                ) : initials(s.fullName)}
+          {filtered.map((s, i) => {
+            const photo = studentPhoto(s);
+            return (
+              <div key={s.id} className="student-card">
+                <div className={`student-card-avatar ${COLORS[i % COLORS.length]}`} style={{ overflow: 'hidden' }}>
+                  {photo ? (
+                    <img src={photo} alt={s.fullName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                  ) : initials(s.fullName)}
+                </div>
+                <h3>{s.fullName}</h3>
+                {s.registrationNumber && (
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'Nunito' }}>Reg: {s.registrationNumber}</p>
+                )}
+                <p className="student-class">Class {s.grade} · {s.studentId}</p>
+                <div style={{ margin: '12px 0', display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button onClick={() => setQrModal(s)} style={{ padding: '6px 14px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'var(--bg)', fontSize: 12, fontWeight: 700, fontFamily: 'Nunito', cursor: 'pointer' }}>
+                    🔲 View QR
+                  </button>
+                  <button onClick={() => handleDelete(s.id, s.fullName)} style={{ padding: '6px 14px', borderRadius: 10, border: '1.5px solid #FF8A80', background: '#FFEBEE', fontSize: 12, fontWeight: 700, fontFamily: 'Nunito', cursor: 'pointer', color: '#C62828' }}>
+                    🗑 Remove
+                  </button>
+                </div>
               </div>
-              <h3>{s.fullName}</h3>
-              {s.registrationNumber && (
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'Nunito' }}>Reg: {s.registrationNumber}</p>
-              )}
-              <p className="student-class">Class {s.grade} · {s.studentId}</p>
-              <div style={{ margin: '12px 0', display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => setQrModal(s)}
-                  style={{ padding: '6px 14px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'var(--bg)', fontSize: 12, fontWeight: 700, fontFamily: 'Nunito', cursor: 'pointer' }}
-                >
-                  🔲 View QR
-                </button>
-                <button
-                  onClick={() => handleDelete(s.id, s.fullName)}
-                  style={{ padding: '6px 14px', borderRadius: 10, border: '1.5px solid #FF8A80', background: '#FFEBEE', fontSize: 12, fontWeight: 700, fontFamily: 'Nunito', cursor: 'pointer', color: '#C62828' }}
-                >
-                  🗑 Remove
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
-      {/* Add Student Modal */}
+      {/* ── Add Student Modal ─────────────────────────────────────────────────── */}
       {showAdd && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: 'white', borderRadius: 24, padding: 40, width: '100%', maxWidth: 480, boxShadow: '0 24px 80px rgba(0,0,0,0.25)' }}>
-            <h2 style={{ marginBottom: 8 }}>Add New Student</h2>
+          <div style={{ background: 'white', borderRadius: 24, padding: 40, width: '100%', maxWidth: 480, boxShadow: '0 24px 80px rgba(0,0,0,0.25)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ marginBottom: 4 }}>Add New Student</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 24 }}>A unique QR code will be generated automatically.</p>
-            <div style={{ maxHeight: '80vh', overflowY: 'auto', paddingRight: 4 }}>
+
             <form onSubmit={handleCreate}>
               {/* Photo upload */}
               <div className="form-group" style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 700, fontFamily: 'Nunito', fontSize: 13 }}>Student Photo</label>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 700, fontFamily: 'Nunito', fontSize: 13 }}>
+                  Student Photo
+                  {isCloudinaryConfigured ? (
+                    <span style={{ marginLeft: 8, fontSize: 10, color: '#15803D', fontWeight: 600, background: '#DCFCE7', padding: '2px 8px', borderRadius: 20 }}>☁️ Cloudinary CDN</span>
+                  ) : (
+                    <span style={{ marginLeft: 8, fontSize: 10, color: '#C62828', fontWeight: 600, background: '#FFEBEE', padding: '2px 8px', borderRadius: 20 }}>⚠️ CDN not configured</span>
+                  )}
+                </label>
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{ width: 80, height: 80, borderRadius: '50%', border: '2.5px dashed var(--border)', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
                     {photoPreview ? (
@@ -222,26 +263,30 @@ export default function Students() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <input type="file" accept="image/*" id="photo-upload" style={{ display: 'none' }} onChange={handlePhotoChange} />
-                    <label htmlFor="photo-upload" style={{ display: 'inline-block', padding: '8px 16px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'white', cursor: 'pointer', fontWeight: 700, fontFamily: 'Nunito', fontSize: 12, color: 'var(--text-primary)' }}>
+                    <label htmlFor="photo-upload" style={{ display: 'inline-block', padding: '8px 16px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'white', cursor: 'pointer', fontWeight: 700, fontFamily: 'Nunito', fontSize: 12 }}>
                       {photoPreview ? '🔄 Change Photo' : '📂 Upload Photo'}
                     </label>
                     {photoPreview && (
-                      <button type="button" onClick={() => { setPhotoPreview(''); setPhotoBase64(''); }} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#C62828', fontWeight: 700 }}>
+                      <button type="button" onClick={() => { setPhotoPreview(''); setPhotoFile(null); }} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#C62828', fontWeight: 700 }}>
                         ✕ Remove
                       </button>
                     )}
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>JPG, PNG or WEBP · Max 5MB</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                      {isCloudinaryConfigured
+                        ? 'Photo will be uploaded to Cloudinary CDN · JPG, PNG or WEBP'
+                        : 'Add REACT_APP_CLOUDINARY_CLOUD_NAME & REACT_APP_CLOUDINARY_UPLOAD_PRESET to Vercel env'}
+                    </p>
                   </div>
                 </div>
               </div>
 
               {[
-                { field: 'studentId',          label: 'Student ID',               placeholder: 'MC2024-0001',      required: true  },
-                { field: 'registrationNumber', label: 'Registration Number',      placeholder: 'REG-2024-001',     required: false },
-                { field: 'fullName',           label: 'Full Name',                placeholder: 'Amara Perera',     required: true  },
-                { field: 'grade',              label: 'Grade/Class',              placeholder: '10A',              required: true  },
-                { field: 'parentEmail',        label: 'Parent Email',             placeholder: 'parent@email.com', required: true  },
-                { field: 'parentPhone',        label: 'Parent Phone (optional)',   placeholder: '+94 77 123 4567',  required: false },
+                { field: 'studentId',          label: 'Student ID',             placeholder: 'MC2024-0001',      required: true  },
+                { field: 'registrationNumber', label: 'Registration Number',    placeholder: 'REG-2024-001',     required: false },
+                { field: 'fullName',           label: 'Full Name',              placeholder: 'Amara Perera',     required: true  },
+                { field: 'grade',              label: 'Grade / Class',          placeholder: '10A',              required: true  },
+                { field: 'parentEmail',        label: 'Parent Email',           placeholder: 'parent@email.com', required: true  },
+                { field: 'parentPhone',        label: 'Parent Phone (optional)', placeholder: '+94 77 123 4567', required: false },
               ].map(({ field, label, placeholder, required }) => (
                 <div className="form-group" key={field}>
                   <label>{label}</label>
@@ -254,21 +299,27 @@ export default function Students() {
                   />
                 </div>
               ))}
+
+              {uploading && (
+                <div style={{ background: '#EFF6FF', border: '1.5px solid #93C5FD', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#1D4ED8', fontWeight: 600, marginBottom: 12 }}>
+                  ☁️ Uploading photo to Cloudinary…
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                <button type="button" onClick={() => { setShowAdd(false); setPhotoPreview(''); setPhotoBase64(''); }} style={{ flex: 1, padding: 14, borderRadius: 12, border: '2px solid var(--border)', background: 'white', cursor: 'pointer', fontWeight: 700, fontFamily: 'Nunito' }}>
+                <button type="button" onClick={() => { setShowAdd(false); setPhotoPreview(''); setPhotoFile(null); }} style={{ flex: 1, padding: 14, borderRadius: 12, border: '2px solid var(--border)', background: 'white', cursor: 'pointer', fontWeight: 700, fontFamily: 'Nunito' }}>
                   Cancel
                 </button>
-                <button type="submit" disabled={saving} className="btn-primary" style={{ flex: 1 }}>
-                  {saving ? '⏳ Saving…' : '✅ Add Student'}
+                <button type="submit" disabled={saving || uploading} className="btn-primary" style={{ flex: 1 }}>
+                  {uploading ? '☁️ Uploading photo…' : saving ? '⏳ Saving…' : '✅ Add Student'}
                 </button>
               </div>
             </form>
-            </div>
           </div>
         </div>
       )}
 
-      {/* QR Code Modal */}
+      {/* ── QR Code Modal ──────────────────────────────────────────────────────── */}
       {qrModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: 'white', borderRadius: 24, padding: 40, textAlign: 'center', maxWidth: 360, width: '100%', boxShadow: '0 24px 80px rgba(0,0,0,0.25)' }}>
