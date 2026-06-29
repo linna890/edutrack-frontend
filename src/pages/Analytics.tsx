@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, RadialLinearScale } from 'chart.js';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
 import { apiGetSummary, apiGetTrend, apiGetClassComparison, SummaryData, TrendDay, ClassStat } from '../api';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, RadialLinearScale, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function Analytics() {
   const [summary, setSummary]   = useState<SummaryData | null>(null);
@@ -11,19 +11,42 @@ export default function Analytics() {
   const [classes, setClasses]   = useState<ClassStat[]>([]);
   const [loading, setLoading]   = useState(true);
   const [days, setDays]         = useState(30);
+  const [errors, setErrors]     = useState<string[]>([]);
 
   useEffect(() => {
     setLoading(true);
-    // FIX: Promise.allSettled so a single failing endpoint doesn't wipe all charts
+    setErrors([]);
     Promise.allSettled([
       apiGetSummary(),
       apiGetTrend(days),
       apiGetClassComparison(),
     ]).then(([sRes, tRes, cRes]) => {
+      const errs: string[] = [];
+      // FIX: Track each failure individually so user knows which section failed
       if (sRes.status === 'fulfilled') setSummary(sRes.value);
+      else errs.push('Failed to load summary stats');
       if (tRes.status === 'fulfilled') setTrend(tRes.value);
+      else errs.push('Failed to load attendance trend');
       if (cRes.status === 'fulfilled') setClasses(cRes.value);
+      else errs.push('Failed to load class comparison');
+      setErrors(errs);
     }).finally(() => setLoading(false));
+  }, [days]);
+
+  // FIX: Auto-refresh every 60 seconds so analytics stay current
+  useEffect(() => {
+    const id = setInterval(() => {
+      Promise.allSettled([
+        apiGetSummary(),
+        apiGetTrend(days),
+        apiGetClassComparison(),
+      ]).then(([sRes, tRes, cRes]) => {
+        if (sRes.status === 'fulfilled') setSummary(sRes.value);
+        if (tRes.status === 'fulfilled') setTrend(tRes.value);
+        if (cRes.status === 'fulfilled') setClasses(cRes.value);
+      });
+    }, 60_000);
+    return () => clearInterval(id);
   }, [days]);
 
   const trendChartData = {
@@ -52,13 +75,6 @@ export default function Analytics() {
     ]
   };
 
-  const KPI_DATA = summary ? [
-    { label: 'Overall Attendance Today', val: `${summary.attendancePct}%`, color: 'sky' },
-    { label: 'Present Today',            val: String(summary.presentToday),  color: 'mint' },
-    { label: 'Late Today',               val: String(summary.lateToday),     color: 'yellow' },
-    { label: 'Absent Today',             val: String(summary.absentToday),   color: 'coral' },
-  ] : [];
-
   const periodOptions = [
     { label: 'Last 7 Days',  days: 7  },
     { label: 'Last 30 Days', days: 30 },
@@ -68,6 +84,12 @@ export default function Analytics() {
 
   return (
     <div className="page-inner">
+      {errors.length > 0 && (
+        <div style={{ background: '#FFF3E0', border: '1.5px solid #FFB74D', borderRadius: 12, padding: '10px 16px',
+          fontSize: 13, color: '#E65100', marginBottom: 16, fontWeight: 600, fontFamily: 'Nunito' }}>
+          ⚠️ {errors.join(' · ')}
+        </div>
+      )}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '64px 0' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>⏳</div>
@@ -75,10 +97,15 @@ export default function Analytics() {
         </div>
       ) : (
         <>
-          {/* KPIs */}
-          {KPI_DATA.length > 0 && (
+          {/* KPIs — show placeholders if summary failed to load */}
+          {(
             <div className="stats-grid" style={{ marginBottom: 24 }}>
-              {KPI_DATA.map((k, i) => (
+              {[
+                { label: 'Overall Attendance Today', val: summary ? `${summary.attendancePct}%` : '—', color: 'sky' },
+                { label: 'Present Today',            val: summary ? String(summary.presentToday)  : '—', color: 'mint' },
+                { label: 'Late Today',               val: summary ? String(summary.lateToday)     : '—', color: 'yellow' },
+                { label: 'Absent Today',             val: summary ? String(summary.absentToday)   : '—', color: 'coral' },
+              ].map((k, i) => (
                 <div key={i} className={`stat-card ${k.color}`}>
                   <div className="stat-card-accent" />
                   <div className="stat-label" style={{ marginBottom: 8, fontSize: 12 }}>{k.label}</div>
@@ -86,7 +113,7 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
-          )}
+          )
 
           {/* Period selector */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
@@ -116,7 +143,14 @@ export default function Analytics() {
                   responsive: true,
                   plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: 700 } } } },
                   scales: {
-                    y: { min: 60, max: 100, ticks: { callback: (v: number | string) => v + '%' }, grid: { color: '#E2EFF9' } },
+                    y: {
+                      // FIX: Dynamic min — floor at 0, not hardcoded 60.
+                      // If attendance drops below 60% the old code clipped bars incorrectly.
+                      min: Math.max(0, Math.floor((Math.min(...classes.map(c => c.pct), 90) - 10) / 10) * 10),
+                      max: 100,
+                      ticks: { callback: (v: number | string) => v + '%' },
+                      grid: { color: '#E2EFF9' }
+                    },
                     x: { grid: { display: false } }
                   }
                 }} />
@@ -130,7 +164,11 @@ export default function Analytics() {
             {/* Summary stats panel */}
             <div className="chart-card">
               <div className="chart-card-header">
-                <div><h3>Today at a Glance</h3><p>{summary?.date}</p></div>
+                <div><h3>Today at a Glance</h3>
+                <p>{summary?.date
+                  ? new Date(summary.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+                  : ''}</p>
+              </div>
               </div>
               {summary && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
@@ -161,7 +199,13 @@ export default function Analytics() {
                 responsive: true,
                 plugins: { legend: { position: 'top', labels: { font: { family: 'Nunito', weight: 700 } } } },
                 scales: {
-                  y: { min: 60, max: 100, ticks: { callback: (v: number | string) => v + '%' }, grid: { color: '#E2EFF9' } },
+                  y: {
+                    // FIX: Dynamic min for trend chart too
+                    min: Math.max(0, Math.floor((Math.min(...trend.map(d => d.pct), 100) - 10) / 10) * 10),
+                    max: 100,
+                    ticks: { callback: (v: number | string) => v + '%' },
+                    grid: { color: '#E2EFF9' }
+                  },
                   x: { grid: { display: false }, ticks: { font: { size: 10 } } }
                 }
               }} />
