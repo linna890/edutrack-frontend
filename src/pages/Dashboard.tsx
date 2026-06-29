@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
   BarElement, Title, Tooltip, Legend, Filler, ArcElement
@@ -23,30 +23,51 @@ export default function Dashboard() {
   const [highRisk, setHighRisk] = useState<HighRiskStudent[]>([]);
   const [recent, setRecent]     = useState<AttendanceRecord[]>([]);
   const [loading, setLoading]   = useState(true);
+  // FIX: Track individual errors per section so one failing API doesn't blank everything
+  const [errors, setErrors]     = useState<Record<string, string>>({});
 
-  useEffect(() => {
+  const load = useCallback(async () => {
+    setLoading(true);
     const since30 = new Date();
     since30.setDate(since30.getDate() - 30);
     const sinceStr = since30.toISOString().split('T')[0];
 
-    Promise.all([
+    // FIX: Use allSettled so one failed call doesn't blank the whole dashboard
+    const [sRes, tRes, hRes, rRes] = await Promise.allSettled([
       apiGetSummary(),
       apiGetTrend(10),
       apiGetHighRisk(sinceStr),
       apiGetToday(),
-    ]).then(([s, t, h, r]) => {
-      setSummary(s);
-      setTrend(t);
-      setHighRisk(h.slice(0, 4));
-      setRecent(r.slice(0, 5));
-    }).catch(() => {
-      // Silently degrade — show empty state
-    }).finally(() => setLoading(false));
+    ]);
+
+    const newErrors: Record<string, string> = {};
+    if (sRes.status === 'fulfilled') setSummary(sRes.value);
+    else newErrors.summary = 'Failed to load summary';
+
+    if (tRes.status === 'fulfilled') setTrend(tRes.value);
+    else newErrors.trend = 'Failed to load trend';
+
+    if (hRes.status === 'fulfilled') setHighRisk(hRes.value.slice(0, 4));
+    else newErrors.highRisk = 'Failed to load high-risk students';
+
+    if (rRes.status === 'fulfilled') setRecent(rRes.value.slice(0, 5));
+    else newErrors.recent = 'Failed to load recent arrivals';
+
+    setErrors(newErrors);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // FIX: Auto-refresh every 60 seconds so dashboard stays live
+  useEffect(() => {
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, [load]);
 
   const lineData = {
     labels: trend.map(d => {
-      const dt = new Date(d.date);
+      const dt = new Date(d.date + 'T00:00:00');
       return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     }),
     datasets: [{
@@ -98,6 +119,14 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Error banners — only shown if a specific section failed */}
+      {Object.values(errors).length > 0 && (
+        <div style={{ background: '#FFF3E0', border: '1.5px solid #FFB74D', borderRadius: 12, padding: '10px 16px',
+          fontSize: 13, color: '#E65100', marginBottom: 16, fontFamily: 'Nunito', fontWeight: 600 }}>
+          ⚠️ Some data sections could not load. {Object.values(errors).join(' · ')}
+        </div>
+      )}
+
       {/* Charts Row */}
       <div className="charts-row">
         <div className="chart-card">
@@ -108,7 +137,11 @@ export default function Dashboard() {
             </div>
             <span className="chip sky">Live</span>
           </div>
-          {trend.length > 0 ? (
+          {errors.trend ? (
+            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+              Could not load trend data
+            </div>
+          ) : trend.length > 0 ? (
             <Line data={lineData} options={{
               responsive: true,
               plugins: { legend: { display: false } },
@@ -151,7 +184,11 @@ export default function Dashboard() {
             <span className="chip mint">● LIVE</span>
           </div>
           <div className="data-table-wrap">
-            {recent.length === 0 ? (
+            {errors.recent ? (
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '32px 0', fontSize: 13 }}>
+                Could not load recent arrivals.
+              </p>
+            ) : recent.length === 0 ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '32px 0', fontSize: 13 }}>
                 No attendance records yet today.
               </p>
@@ -178,7 +215,9 @@ export default function Dashboard() {
                       </td>
                       <td><span className="chip sky">{r.student.grade}</span></td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                        {r.arrivalTime ? new Date(r.arrivalTime).toLocaleTimeString() : '—'}
+                        {/* FIX: Backend returns LocalDateTime as "2025-01-15T08:12:00" (no Z).
+                            Parsing without 'T00:00:00' tricks still works for datetime. */}
+                        {r.arrivalTime ? new Date(r.arrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
                       </td>
                       <td>
                         <span className={`status-badge ${r.status.toLowerCase()}`}>
@@ -200,7 +239,11 @@ export default function Dashboard() {
               <p>Below 80% attendance (last 30 days)</p>
             </div>
           </div>
-          {highRisk.length === 0 ? (
+          {errors.highRisk ? (
+            <div style={{ textAlign: 'center', padding: '32px 0' }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Could not load high-risk data.</p>
+            </div>
+          ) : highRisk.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '32px 0' }}>
               <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
               <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No high-risk students. Great attendance!</p>
