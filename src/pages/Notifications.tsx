@@ -173,7 +173,7 @@ export default function Notifications() {
   };
 
   const markRead = (id: string) => {
-    setReadIds(prev => new Set([...prev, id]));
+    setReadIds(prev => new Set(Array.from(prev).concat(id)));
   };
 
   const effectiveNotifs = notifs.map(n => ({
