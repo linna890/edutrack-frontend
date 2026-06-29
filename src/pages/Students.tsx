@@ -18,8 +18,9 @@ async function uploadToCloudinary(file: File): Promise<string> {
   fd.append('file', file);
   fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
   fd.append('folder', 'edutrack/students');
-  // Resize & crop to 300×300 on Cloudinary side — keeps file small
-  fd.append('transformation', 'c_fill,w_300,h_300,q_auto,f_auto');
+  // FIX: 'transformation' param is NOT allowed with unsigned upload presets.
+  // Cloudinary throws an error if you include it. Instead we compress the image
+  // in the browser before uploading (canvas resize below in handlePhotoChange).
 
   const res = await fetch(
     `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
