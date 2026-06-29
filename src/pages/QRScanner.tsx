@@ -52,11 +52,25 @@ export default function QRScanner() {
   }, [loadStats]);
 
   // Core scan handler — called with a QR code string from camera or manual entry
+  // FIX: Track timers so they can be cancelled (prevents memory leaks and
+  // race conditions when a second scan fires before the first timer fires).
+  const feedbackTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const popupTimerRef    = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear timers on unmount
+  useEffect(() => () => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    if (popupTimerRef.current)    clearTimeout(popupTimerRef.current);
+  }, []);
+
   const handleScan = useCallback(async (qrCode: string) => {
     if (!qrCode.trim()) return;
     setScanning(true);
     setError('');
     setFeedback(null);
+    // Cancel any pending timers from a previous scan
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    if (popupTimerRef.current)    clearTimeout(popupTimerRef.current);
 
     try {
       const result = await apiScan(qrCode.trim(), mode === 'arrival' ? 'ARRIVAL' : 'DEPARTURE');
@@ -67,24 +81,30 @@ export default function QRScanner() {
         registrationNumber: result.registrationNumber,
         photoBase64:        result.photoBase64,
         status:             result.status,
+        // FIX: LocalDateTime from Spring arrives as "2025-01-15T08:12:00" (no Z).
+        // Appending nothing is fine for toLocaleTimeString on most browsers,
+        // but to be safe we parse only the time portion directly.
         time:               result.arrivalTime
-                              ? new Date(result.arrivalTime).toLocaleTimeString()
+                              ? new Date(result.arrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                               : result.departureTime
-                              ? new Date(result.departureTime).toLocaleTimeString()
-                              : new Date().toLocaleTimeString(),
+                              ? new Date(result.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         success:            true,
       };
       setFeedback(fb);
       setScanPopup(fb);
       // Refresh stats after a successful scan
       loadStats();
+      // Auto-clear the scanner overlay (green success box) after 4 seconds
+      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 4000);
+      // FIX: Auto-close the student info popup after 8 seconds (enough time to read)
+      popupTimerRef.current = setTimeout(() => setScanPopup(null), 8000);
     } catch (err: any) {
       setError(err.message || 'Scan failed. Please try again.');
       setFeedback({ studentName: '', status: '', time: '', success: false });
+      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 4000);
     } finally {
       setScanning(false);
-      // Auto-clear feedback after 4 seconds
-      setTimeout(() => setFeedback(null), 4000);
     }
   }, [mode, loadStats]);
 
