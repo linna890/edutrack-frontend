@@ -7,7 +7,7 @@ import { Line, Doughnut } from 'react-chartjs-2';
 import {
   apiGetSummary, apiGetTrend, apiGetHighRisk, apiGetToday,
   SummaryData, TrendDay, HighRiskStudent, AttendanceRecord
-} from '../api';
+} from '../api'; // AttendanceRecord includes departureTime
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler, ArcElement);
 
@@ -198,7 +198,8 @@ export default function Dashboard() {
                   <tr>
                     <th>Student</th>
                     <th>Class</th>
-                    <th>Time</th>
+                    <th>Arrived</th>
+                    <th>Left</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -215,9 +216,12 @@ export default function Dashboard() {
                       </td>
                       <td><span className="chip sky">{r.student.grade}</span></td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                        {/* FIX: Backend returns LocalDateTime as "2025-01-15T08:12:00" (no Z).
-                            Parsing without 'T00:00:00' tricks still works for datetime. */}
                         {r.arrivalTime ? new Date(r.arrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                      </td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                        {(r as any).departureTime
+                          ? new Date((r as any).departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : <span style={{ color: '#CBD5E1', fontSize: 11 }}>Still in</span>}
                       </td>
                       <td>
                         <span className={`status-badge ${r.status.toLowerCase()}`}>
