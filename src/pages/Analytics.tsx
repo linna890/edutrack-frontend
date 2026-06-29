@@ -113,7 +113,7 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
-          )
+          )}
 
           {/* Period selector */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
