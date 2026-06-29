@@ -39,8 +39,25 @@ export default function Students() {
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
       setPhotoPreview(dataUrl);
-      // strip "data:image/...;base64," prefix
-      setPhotoBase64(dataUrl.split(',')[1] || '');
+      // FIX: Compress & resize the photo before storing it as base64.
+      // Without this, a phone camera photo (~3MB) becomes a ~4MB base64 string.
+      // That string is stored in the DB and returned in EVERY scan response,
+      // causing the QR scanner popup to timeout and fail ("can't fetch").
+      // We resize to max 200×200px and compress to JPEG quality 0.7 (~10-30KB).
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 200;
+        const scale = Math.min(MAX / img.width, MAX / img.height, 1);
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.7);
+        setPhotoPreview(compressed);
+        setPhotoBase64(compressed.split(',')[1] || '');
+      };
+      img.src = dataUrl;
     };
     reader.readAsDataURL(file);
   };
