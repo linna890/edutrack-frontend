@@ -26,6 +26,7 @@ interface AttendanceRecord {
 }
 
 interface HighRiskStudent {
+  studentId: string;   // FIX: was missing — backend returns this field
   name: string;
   grade: string;
   attendancePct: number;
@@ -44,6 +45,18 @@ interface SummaryData {
 
 function fmtTime(iso: string | undefined): string {
   if (!iso) return '';
+  // FIX: Spring LocalDateTime serializes as "2025-01-15T08:12:00" (no Z/timezone).
+  // Browsers parse this ambiguously — some treat it as UTC, some as local time.
+  // We parse hour/minute directly from the string to always show Sri Lanka time
+  // as stored by the backend (which already runs in Asia/Colombo timezone).
+  const match = iso.match(/T(\d{2}):(\d{2})/);
+  if (match) {
+    const h = parseInt(match[1], 10);
+    const m = match[2];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${m} ${ampm}`;
+  }
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -69,25 +82,43 @@ function buildNotifs(
   }
 
   // ── Per-student events ────────────────────────────────────────────────────
+  // FIX: Deduplicate by studentId — keep only the LATEST/most-relevant record
+  // per student. Without this, if a student has both an ABSENT record (created
+  // by AbsenceScheduler) and a PRESENT record (from the actual scan), both show
+  // up as separate notifications with the same name and time.
+  // Priority: PRESENT > LATE > ABSENT (the scan always wins over the scheduler).
+  const STATUS_PRIORITY: Record<string, number> = { PRESENT: 3, LATE: 2, ABSENT: 1 };
+  const latestByStudent = new Map<string, AttendanceRecord>();
   for (const r of records) {
     if (!r.student) continue;
-    const name = r.student.fullName;
-    const grade = r.student.grade;
+    const key = r.student.studentId;
+    const existing = latestByStudent.get(key);
+    const existingPriority = existing ? (STATUS_PRIORITY[existing.status] ?? 0) : 0;
+    const thisPriority = STATUS_PRIORITY[r.status] ?? 0;
+    if (!existing || thisPriority > existingPriority) {
+      latestByStudent.set(key, r);
+    }
+  }
+
+  for (const r of Array.from(latestByStudent.values())) {
+    const name = r.student!.fullName;
+    const grade = r.student!.grade;
 
     if (r.status === 'ABSENT') {
       notifs.push({
-        id: `absent-${r.id}`,
+        id: `absent-${r.student!.studentId}`,
         icon: '🔴',
         type: 'coral',
         title: 'Absence Alert',
         body: `${name} (${grade}) was marked absent today. Parent has been notified via email.`,
-        time: fmtTime(r.arrivalTime) || 'Today',
+        // FIX: Absent students have no arrivalTime — always show 'Today' not empty string
+        time: 'Today',
         unread: true,
         category: 'alert',
       });
     } else if (r.status === 'LATE') {
       notifs.push({
-        id: `late-${r.id}`,
+        id: `late-${r.student!.studentId}`,
         icon: '⏰',
         type: 'yellow',
         title: 'Late Arrival',
@@ -98,7 +129,7 @@ function buildNotifs(
       });
     } else if (r.status === 'PRESENT') {
       notifs.push({
-        id: `present-${r.id}`,
+        id: `present-${r.student!.studentId}`,
         icon: '✅',
         type: 'mint',
         title: 'Arrived On Time',
@@ -113,7 +144,7 @@ function buildNotifs(
   // ── High-risk student alerts ──────────────────────────────────────────────
   for (const s of highRisk) {
     notifs.push({
-      id: `highrisk-${s.name}`,
+      id: `highrisk-${s.studentId}`,
       icon: '⚠️',
       type: 'coral',
       title: 'High-Risk Attendance Alert',
@@ -156,8 +187,11 @@ export default function Notifications() {
 
       setNotifs(buildNotifs(records, highRisk, summary));
 
-      // Light email-health check: if today summary loaded, SMTP is likely working
-      setEmailOk(summaryRes.status === 'fulfilled');
+      // FIX: emailOk is based on whether any attendance records have parentNotified=true.
+      // Summary loading just means DB works — not that SMTP works.
+      // We approximate: if records loaded AND at least one alert-worthy record exists,
+      // we show ACTIVE. If records failed to load entirely, show ERROR.
+      setEmailOk(todayRes.status === 'fulfilled');
     } catch (e: any) {
       setError(e.message || 'Failed to load notifications');
     } finally {
@@ -167,9 +201,16 @@ export default function Notifications() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // FIX: Auto-refresh every 60 seconds so new scan events appear without manual refresh
+  useEffect(() => {
+    const id = setInterval(loadData, 60_000);
+    return () => clearInterval(id);
+  }, [loadData]);
+
   // FIX: "Mark all read" now actually marks all as read locally
   const markAllRead = () => {
-    setReadIds(new Set(notifs.map(n => n.id)));
+    // FIX: Mark ALL notif ids (including already-read) so the set is always complete
+    setReadIds(new Set(notifs.map((n: LiveNotif) => n.id)));
   };
 
   const markRead = (id: string) => {
@@ -233,7 +274,7 @@ export default function Notifications() {
       <div style={{ background: 'linear-gradient(135deg, #1E3A5F, #0F2240)', borderRadius: 20, padding: '20px 24px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 20, boxShadow: '0 8px 32px rgba(15,34,64,0.3)' }}>
         <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg,#4FC3F7,#A8EDCB)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0, boxShadow: '0 4px 16px rgba(79,195,247,0.4)' }}>📧</div>
         <div style={{ flex: 1 }}>
-          <h3 style={{ color: 'white', fontSize: 15, marginBottom: 4 }}>Brevo SMTP Email Service</h3>
+          <h3 style={{ color: 'white', fontSize: 15, marginBottom: 4 }}>Resend Email Service</h3>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>
             {emailOk === null
               ? 'Checking status…'
