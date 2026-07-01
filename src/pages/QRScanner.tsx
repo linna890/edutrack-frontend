@@ -66,6 +66,13 @@ export default function QRScanner() {
 
   const handleScan = useCallback(async (qrCode: string) => {
     if (!qrCode.trim()) return;
+    // FIX: Guard against duplicate calls firing within the same scan window.
+    // The camera scanner can call onScan() multiple times for the same QR code
+    // if it detects the code across several consecutive video frames before the
+    // "scanning" state updates and disables further calls. Without this check,
+    // two scan requests can both reach the backend within milliseconds — which
+    // is exactly what caused 2 duplicate departure emails to be sent in production.
+    if (scanning) return;
     setScanning(true);
     setError('');
     setFeedback(null);
@@ -108,7 +115,7 @@ export default function QRScanner() {
     } finally {
       setScanning(false);
     }
-  }, [mode, loadStats]);
+  }, [mode, loadStats, scanning]);
 
   const handleManualSubmit = () => {
     if (manualInput.trim()) {
