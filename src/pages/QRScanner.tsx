@@ -312,109 +312,58 @@ export default function QRScanner() {
       </div>
       {/* ── Student Scan Popup ────────────────────────────────────────── */}
       {scanPopup && scanPopup.success && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.7)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: 'white', borderRadius: 32, padding: 0, maxWidth: 420, width: '100%', boxShadow: '0 24px 80px rgba(0,0,0,0.35)', overflow: 'hidden', textAlign: 'center' }}>
-            {/* Header with close button */}
-            <div style={{ position: 'relative', padding: '24px 20px', borderBottom: '1px solid #E5E7EB' }}>
-              <button
-                onClick={() => setScanPopup(null)}
-                style={{ position: 'absolute', top: 12, right: 12, width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF' }}
-              >
-                ✕
-              </button>
-              <h3 style={{ margin: 0, fontFamily: 'Nunito', fontSize: 14, fontWeight: 700, color: '#4FC3F7', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                Scan QR Code
-              </h3>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: 'white', borderRadius: 28, padding: 36, textAlign: 'center', maxWidth: 340, width: '100%', boxShadow: '0 32px 80px rgba(0,0,0,0.3)', position: 'relative' }}>
+            {/* Close button */}
+            <button
+              onClick={() => setScanPopup(null)}
+              style={{ position: 'absolute', top: 16, right: 16, width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#F1F5F9', cursor: 'pointer', fontSize: 16, color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}
+            >✕</button>
+
+            {/* Status badge */}
+            <div style={{ display: 'inline-block', padding: '4px 14px', borderRadius: 20, marginBottom: 16,
+              background: scanPopup.status === 'PRESENT' ? '#DCFCE7' : scanPopup.status === 'LATE' ? '#FEF9C3' : '#FEE2E2',
+              color:      scanPopup.status === 'PRESENT' ? '#15803D' : scanPopup.status === 'LATE' ? '#A16207' : '#B91C1C',
+              fontWeight: 800, fontSize: 12, fontFamily: 'Nunito', letterSpacing: 0.5,
+            }}>
+              {scanPopup.status === 'PRESENT' ? '✅ PRESENT' : scanPopup.status === 'LATE' ? '⏰ LATE' : '❌ ABSENT'} · {scanPopup.time}
             </div>
 
-            {/* Main content */}
-            <div style={{ padding: '24px 24px 32px' }}>
-              {/* Photo — Cloudinary URL preferred, legacy base64 as fallback */}
-              <div style={{ width: 140, height: 140, borderRadius: '50%', margin: '0 auto 20px', border: '5px solid', borderColor: scanPopup.status === 'PRESENT' ? '#4FC3F7' : scanPopup.status === 'LATE' ? '#FFD54F' : '#FF8A80', overflow: 'hidden', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
-                {scanPopup.photoUrl ? (
-                  <img src={scanPopup.photoUrl} alt={scanPopup.studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : scanPopup.photoBase64 ? (
-                  <img src={`data:image/jpeg;base64,${scanPopup.photoBase64}`} alt={scanPopup.studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <span style={{ fontSize: 56 }}>🎒</span>
-                )}
-              </div>
-
-              {/* Name */}
-              <h2 style={{ margin: '0 0 8px', fontFamily: 'Nunito', fontSize: 24, fontWeight: 700, color: '#1F2937' }}>
-                {scanPopup.studentName}
-              </h2>
-
-              {/* School info */}
-              <p style={{ margin: '0 0 16px', fontFamily: 'Nunito', fontSize: 13, color: '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                🏫 EduTrack School System
-              </p>
-
-              {/* Grade badge */}
-              <span style={{
-                display: 'inline-block',
-                padding: '8px 16px',
-                borderRadius: 20,
-                fontSize: 14,
-                fontWeight: 700,
-                fontFamily: 'Nunito',
-                background: '#EFF6FF',
-                color: '#0288D1',
-                marginBottom: 24
-              }}>
-                🎓 {scanPopup.grade}
-              </span>
-
-              {/* Divider */}
-              <div style={{ height: '1px', background: '#E5E7EB', margin: '24px 0' }} />
-
-              {/* Status and Time */}
-              <div style={{ display: 'flex', justifyContent: 'space-around', gap: 12, marginBottom: 24 }}>
-                <div>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '8px 14px',
-                    borderRadius: 12,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    fontFamily: 'Nunito',
-                    background: scanPopup.status === 'PRESENT' ? '#DFFCE7' : scanPopup.status === 'LATE' ? '#FFF9E6' : '#FFE7E7',
-                    color: scanPopup.status === 'PRESENT' ? '#1B5E20' : scanPopup.status === 'LATE' ? '#F57F17' : '#C62828',
-                  }}>
-                    {scanPopup.status === 'PRESENT' ? '✅ Present' : scanPopup.status === 'LATE' ? '⏰ Late' : '❌ Absent'}
-                  </span>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ margin: 0, fontFamily: 'Nunito', fontSize: 12, color: '#9CA3AF', fontWeight: 500, marginBottom: 4 }}>Time</p>
-                  <p style={{ margin: 0, fontFamily: 'Nunito', fontSize: 14, color: '#1F2937', fontWeight: 700 }}>🕐 {scanPopup.time}</p>
-                </div>
-              </div>
-
-              {/* Info text */}
-              <p style={{ margin: '0 0 20px', fontFamily: 'Nunito', fontSize: 11, color: '#9CA3AF', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                🛡️ Ensure the QR code is steady and clearly visible
-              </p>
-
-              {/* Close button */}
-              <button
-                onClick={() => setScanPopup(null)}
-                style={{
-                  width: '100%',
-                  padding: 14,
-                  borderRadius: 12,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #4FC3F7, #0288D1)',
-                  color: 'white',
-                  fontWeight: 700,
-                  fontFamily: 'Nunito',
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(79, 195, 247, 0.3)',
-                }}
-              >
-                Close
-              </button>
+            {/* Photo — Cloudinary URL preferred, legacy base64 as fallback */}
+            <div style={{ width: 110, height: 110, borderRadius: '50%', margin: '0 auto 16px', border: '4px solid', borderColor: scanPopup.status === 'PRESENT' ? '#86EFAC' : scanPopup.status === 'LATE' ? '#FDE047' : '#FCA5A5', overflow: 'hidden', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}>
+              {scanPopup.photoUrl ? (
+                <img src={scanPopup.photoUrl} alt={scanPopup.studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : scanPopup.photoBase64 ? (
+                <img src={`data:image/jpeg;base64,${scanPopup.photoBase64}`} alt={scanPopup.studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <span style={{ fontSize: 44 }}>🎒</span>
+              )}
             </div>
+
+            {/* Name */}
+            <h2 style={{ fontFamily: 'Nunito', fontSize: 22, fontWeight: 900, color: '#1E3A5F', margin: '0 0 6px' }}>
+              {scanPopup.studentName}
+            </h2>
+
+            {/* Details */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 24 }}>
+              {scanPopup.grade && (
+                <span style={{ fontSize: 13, color: '#64748B', fontFamily: 'Nunito' }}>📚 Grade {scanPopup.grade}</span>
+              )}
+              {scanPopup.studentId && (
+                <span style={{ fontSize: 13, color: '#64748B', fontFamily: 'Nunito' }}>🪪 {scanPopup.studentId}</span>
+              )}
+              {scanPopup.registrationNumber && (
+                <span style={{ fontSize: 13, color: '#64748B', fontFamily: 'Nunito' }}>📋 Reg: {scanPopup.registrationNumber}</span>
+              )}
+            </div>
+
+            <button
+              onClick={() => setScanPopup(null)}
+              style={{ width: '100%', padding: '14px', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg, #4FC3F7, #0288D1)', color: 'white', fontWeight: 800, fontFamily: 'Nunito', fontSize: 15, cursor: 'pointer', boxShadow: '0 4px 16px rgba(79,195,247,0.4)' }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
